@@ -45,14 +45,16 @@ jobs:
           path: playwright-report/
           retention-days: 30
 
-  deploy:
-      needs: e2e
-      runs-on: ubuntu-latest
-      environment:
-        name: github-pages
-        url: ${{ steps.deployment.outputs.page_url }}
-      steps:
-        - id: deployment
-          uses: actions/deploy-pages@v4
-        - name: Add link to job summary
-          run: echo "Report 👉 ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
+  deploy_reporting:
+    needs: e2e
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write         # publier sur Pages
+      id-token: write      # récupérer l'OIDC token (évite ton erreur)
+      contents: read
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
