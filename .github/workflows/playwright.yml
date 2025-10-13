@@ -44,3 +44,15 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 30
+
+  deploy:
+      needs: e2e
+      runs-on: ubuntu-latest
+      environment:
+        name: github-pages
+        url: ${{ steps.deployment.outputs.page_url }}
+      steps:
+        - id: deployment
+          uses: actions/deploy-pages@v4
+        - name: Add link to job summary
+          run: echo "Report 👉 ${{ steps.deployment.outputs.page_url }}" >> $GITHUB_STEP_SUMMARY
