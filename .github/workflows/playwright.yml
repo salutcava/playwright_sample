@@ -1,59 +1,54 @@
-name: 🎭 Playwright
+name: Playwright + Pages
 
 on:
   push:
-    branches: [ main, master, develop ]
-  pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  e2e:
+  build-report:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.56.0-jammy
       options: --user=root
     env:
       HOME: /root
-      DOCKER_CONFIG: /tmp/.docker   # ← évite la lecture de /root/.docker/config.json
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Silence Docker warning
-        run: |
-          mkdir -p "$DOCKER_CONFIG"
-          echo '{}' > "$DOCKER_CONFIG/config.json"
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
-
-      - name: Install + Test
+      - name: Install deps + run Playwright (HTML report)
         run: |
           [ -f .env.ci ] && cp .env.ci .env
-          npm ci --no-audit --no-fund --prefer-offline
-          npx playwright test -c ci.config.ts
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 30
+          npm ci --no-audit --no-fund
+          npx playwright test -c ci.config.ts --reporter=html
 
-  deploy_reporting:
-    needs: e2e
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      # ⚠️ Doit être upload-pages-artifact et s'appeler "github-pages"
+      - name: Upload Pages artifact (playwright-report)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: playwright-report
+          name: github-pages  # <-- important
+
+  deploy:
+    needs: build-report
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     permissions:
-      pages: write         # publier sur Pages
-      id-token: write      # récupérer l'OIDC token (évite ton erreur)
+      pages: write
+      id-token: write
       contents: read
     steps:
       - id: deploy
