@@ -12,23 +12,28 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.56.0-jammy
-      options: --user=root            # s'assure que /root est accessible
+      options: --user=root
     env:
-      HOME: /root                     # workaround
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"   # navigateurs déjà dans l'image
+      HOME: /root
+      DOCKER_CONFIG: /tmp/.docker   # ← évite la lecture de /root/.docker/config.json
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache npm (~/.npm)
+      - name: Silence Docker warning
+        run: |
+          mkdir -p "$DOCKER_CONFIG"
+          echo '{}' > "$DOCKER_CONFIG/config.json"
+
+      - name: Cache npm
         uses: actions/cache@v4
         with:
-          path: ~/.npm                # => /root/.npm grâce à HOME=/root
+          path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             npm-${{ runner.os }}-
 
       - name: Install + Test
-        shell: bash
         run: |
           [ -f .env.ci ] && cp .env.ci .env
           npm ci --no-audit --no-fund --prefer-offline
