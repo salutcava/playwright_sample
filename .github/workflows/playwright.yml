@@ -1,4 +1,4 @@
-name: Playwright + Pages (multi-jobs)
+name: 🎭 Playwright
 
 on:
   push:
@@ -13,20 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  initialization:
-    name: Initialization
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set the job
-        run: echo "Initializing…"
-      - name: Initialize containers (note)
-        run: echo "Containers sont par job; initialisés dans le job e2e."
-      - name: Checkout
-        uses: actions/checkout@v4
-
-  e2e-tests:
-    name: Running e2e tests
-    needs: initialization
+  e2e:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.56.0-jammy
@@ -34,54 +21,39 @@ jobs:
     env:
       HOME: /root
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      DOCKER_CONFIG: /tmp/.docker
     steps:
       - uses: actions/checkout@v4
+      - name: Silence docker warning
+        run: mkdir -p "$DOCKER_CONFIG" && echo '{}' > "$DOCKER_CONFIG/config.json"
+
+      # (Optionnel mais utile) Cache npm
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - name: Run Playwright (HTML)
         run: |
           [ -f .env.ci ] && cp .env.ci .env
-          npm ci --no-audit --no-fund
+          npm ci --no-audit --no-fund --prefer-offline
           npx playwright test -c ci.config.ts --reporter=html
-      - name: Upload e2e report (artifact for next job)
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-report
-          path: playwright-report
-          if-no-files-found: error
 
-  prepare-report:
-    name: Preparing reporting
-    needs: e2e-tests
-    runs-on: ubuntu-latest
-    steps:
       - name: Configure Pages
         uses: actions/configure-pages@v5
-      - name: Download e2e report
-        uses: actions/download-artifact@v4
-        with:
-          name: e2e-report
-          path: ./playwright-report
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./playwright-report
+          path: playwright-report
           name: github-pages
-      - name: Post run checkout (note)
-        run: echo "Le 'post run' de checkout est automatique, rien à faire."
-      - name: Stop container (note)
-        run: echo "Les containers sont arrêtés automatiquement en fin de job."
 
-  deploy:
-    needs: prepare-report
+  reporting:
+    needs: e2e
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    permissions:
-      pages: write
-      id-token: write
-      contents: read
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v4
-        with:
-          enablement: true
+      url: ${{ steps.deploy.ou
