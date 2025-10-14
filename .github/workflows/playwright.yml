@@ -1,4 +1,4 @@
-name: Playwright tests
+name: Playwright
 
 on:
   push:
@@ -56,4 +56,13 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deploy.ou
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+        with:
+          enablement: true
