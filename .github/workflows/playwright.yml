@@ -33,8 +33,7 @@ jobs:
           submodules: false
           lfs: false
 
-      # Cache npm (~/.npm) — clé courte, basée sur le lockfile racine
-      - name: Cache npm
+      - name: Cache npm (~/.npm)
         uses: actions/cache@v4
         with:
           path: ~/.npm
@@ -48,7 +47,6 @@ jobs:
           npm ci --no-audit --no-fund --prefer-offline
           npx playwright test -c ci.config.ts --reporter=html
 
-      # Upload direct pour Pages (pas d'artifact intermédiaire)
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
