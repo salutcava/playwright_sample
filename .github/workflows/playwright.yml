@@ -3,14 +3,19 @@ name: Playwright
 on:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'README*'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  group: "pages-${{ github.ref }}"
+  cancel-in-progress: true
 
 jobs:
   e2e:
@@ -21,18 +26,19 @@ jobs:
     env:
       HOME: /root
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      DOCKER_CONFIG: /tmp/.docker
     steps:
       - uses: actions/checkout@v4
-      - name: Silence docker warning
-        run: mkdir -p "$DOCKER_CONFIG" && echo '{}' > "$DOCKER_CONFIG/config.json"
+        with:
+          fetch-depth: 1
+          submodules: false
+          lfs: false
 
-      # (Optionnel mais utile) Cache npm
+      # Cache npm (~/.npm) — clé courte, basée sur le lockfile racine
       - name: Cache npm
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: |
             npm-${{ runner.os }}-
 
@@ -42,9 +48,7 @@ jobs:
           npm ci --no-audit --no-fund --prefer-offline
           npx playwright test -c ci.config.ts --reporter=html
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
+      # Upload direct pour Pages (pas d'artifact intermédiaire)
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
