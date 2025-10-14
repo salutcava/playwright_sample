@@ -1,35 +1,71 @@
+name: Playwright
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**/*.md'
+      - 'README*'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "pages-${{ github.ref }}"
+  cancel-in-progress: true
+
 jobs:
   e2e:
+    name: Build & Upload report
     runs-on: ubuntu-latest
-    container:
-      image: mcr.microsoft.com/playwright:v1.56.0-jammy
-      options: --user=root
-    env:
-      HOME: /root
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-      DOCKER_CONFIG: /tmp/.docker   # ← évite /root/.docker
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
           submodules: false
           lfs: false
 
-      - name: Silence Docker warning
-        run: |
-          mkdir -p "$DOCKER_CONFIG"
-          echo '{}' > "$DOCKER_CONFIG/config.json"
-
-      - name: Cache npm (~/.npm)
-        uses: actions/cache@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
+          node-version: 20
+          cache: npm
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
 
       - name: Run Playwright (HTML)
         run: |
           [ -f .env.ci ] && cp .env.ci .env
-          npm ci --no-audit --no-fund --prefer-offline
+          npm ci --no-audit --no-fund
           npx playwright test -c ci.config.ts --reporter=html
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: playwright-report
+          name: github-pages
+
+  reporting:
+    name: Deploy report to Pages
+    needs: e2e
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+        with:
+          enablement: true
