@@ -23,22 +23,18 @@ jobs:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install deps + run Playwright (HTML report)
+      - name: Run Playwright (HTML)
         run: |
           [ -f .env.ci ] && cp .env.ci .env
           npm ci --no-audit --no-fund
           npx playwright test -c ci.config.ts --reporter=html
-
       - name: Configure Pages
         uses: actions/configure-pages@v5
-
-      # ⚠️ Doit être upload-pages-artifact et s'appeler "github-pages"
-      - name: Upload Pages artifact (playwright-report)
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: playwright-report
-          name: github-pages  # <-- important
+          name: github-pages
 
   deploy:
     needs: build-report
@@ -53,3 +49,5 @@ jobs:
     steps:
       - id: deploy
         uses: actions/deploy-pages@v4
+        with:
+          enablement: true   # ⬅️ crée/active le site Pages si absent
