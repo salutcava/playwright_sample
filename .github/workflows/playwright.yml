@@ -1,22 +1,3 @@
-name: Playwright
-
-on:
-  push:
-    branches: [ main, master ]
-    paths-ignore:
-      - '**/*.md'
-      - 'README*'
-      - 'docs/**'
-      - '.github/ISSUE_TEMPLATE/**'
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: "pages-${{ github.ref }}"
-  cancel-in-progress: true
-
 jobs:
   e2e:
     runs-on: ubuntu-latest
@@ -26,12 +7,18 @@ jobs:
     env:
       HOME: /root
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      DOCKER_CONFIG: /tmp/.docker   # ← évite /root/.docker
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
           submodules: false
           lfs: false
+
+      - name: Silence Docker warning
+        run: |
+          mkdir -p "$DOCKER_CONFIG"
+          echo '{}' > "$DOCKER_CONFIG/config.json"
 
       - name: Cache npm (~/.npm)
         uses: actions/cache@v4
@@ -46,25 +33,3 @@ jobs:
           [ -f .env.ci ] && cp .env.ci .env
           npm ci --no-audit --no-fund --prefer-offline
           npx playwright test -c ci.config.ts --reporter=html
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: playwright-report
-          name: github-pages
-
-  reporting:
-    needs: e2e
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    permissions:
-      pages: write
-      id-token: write
-      contents: read
-    steps:
-      - id: deploy
-        uses: actions/deploy-pages@v4
-        with:
-          enablement: true
