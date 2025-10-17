@@ -1,6 +1,8 @@
 name: E2E Tests and PR Creation
 
 on:
+  push:
+    branches: [ main, master ]
   workflow_dispatch:
     inputs:
       site_url:
