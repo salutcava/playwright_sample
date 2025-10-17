@@ -10,4 +10,6 @@ test('Simple login test', async ({ page }) => {
   await loginButton.click();
 
   await expect(page.getByText('Bienvenue Olivier')).toBeVisible();
+  
+  await page.waitForTimeout(1000);
 });
