@@ -20,41 +20,73 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages-${{ github.ref }}"
+  cancel-in-progress: true
 
 jobs:
   e2e-tests:
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.0-jammy
+      options: --user=root
+    env:
+      HOME: /root
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      SITE_URL: ${{ inputs.site_url }}
     outputs:
       test-result: ${{ steps.tests.outcome }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          fetch-depth: 1
+          submodules: false
+          lfs: false
       
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Install Playwright Browsers
-        run: npx playwright install --with-deps
+      - name: Cache npm (~/.npm)
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
       
       - name: Run Playwright tests
         id: tests
         continue-on-error: true
-        env:
-          SITE_URL: ${{ inputs.site_url }}
-        run: npx playwright test
+        run: |
+          [ -f .env.ci ] && cp .env.ci .env
+          npm ci --no-audit --no-fund --prefer-offline
+          npx playwright test -c ci.config.ts --reporter=html
       
-      - name: Upload test results
+      - name: Upload Pages artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 30
+          path: playwright-report
+          name: github-pages
+
+  deploy-report:
+    needs: e2e-tests
+    runs-on: ubuntu-latest
+    if: always()
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
+        with:
+          enablement: true
 
   create-pr:
     needs: e2e-tests
@@ -66,18 +98,8 @@ jobs:
         with:
           repository: ${{ inputs.source_repo }}
           ref: ${{ inputs.source_branch }}
-          token: ${{ secrets.PAT_TOKEN }}
-      
-      - name: Create PR branch if not main
-        if: inputs.source_branch != 'main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Créer une branche pour la PR si elle n'existe pas déjà
-          PR_BRANCH="pr-${{ inputs.source_branch }}-${{ inputs.source_sha }}"
-          git checkout -b $PR_BRANCH 2>/dev/null || git checkout $PR_BRANCH
-          git push origin $PR_BRANCH --force
+          token: ${{ secrets.PWS_PAT }}
+          fetch-depth: 0
       
       - name: Create or Update Pull Request
         if: inputs.source_branch != 'main'
@@ -103,11 +125,12 @@ jobs:
             
             ### Résultat des tests
             - Status: **${testStatus}**
-            - [Voir le rapport complet](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - [📊 Voir le rapport Playwright](https://salutcava.github.io/playwright_sample_e2e/)
+            - [🔍 Détails du workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
             
             ${testResult === 'success' ? 
               '🎉 Tous les tests sont passés ! Cette PR peut être mergée.' : 
-              '⚠️ Des tests ont échoué. Vérifiez les résultats avant de merger.'}
+              '⚠️ Des tests ont échoué. Consultez le rapport Playwright pour plus de détails.'}
             
             ---
             *Généré automatiquement par le workflow E2E*
@@ -133,7 +156,19 @@ jobs:
               
               console.log(`PR #${pr.number} mise à jour`);
               
-              // Ajouter un label selon le résultat
+              // Supprimer les anciens labels
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  name: testResult === 'success' ? 'e2e-failed' : 'e2e-passed'
+                });
+              } catch (e) {
+                // Le label n'existe peut-être pas
+              }
+              
+              // Ajouter le nouveau label
               const labels = testResult === 'success' ? ['e2e-passed'] : ['e2e-failed'];
               await github.rest.issues.addLabels({
                 owner,
@@ -180,7 +215,7 @@ jobs:
               repo: 'playwright_sample_site',
               sha: '${{ inputs.source_sha }}',
               state: state,
-              target_url: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}',
+              target_url: 'https://salutcava.github.io/playwright_sample_e2e/',
               description: testResult === 'success' ? 'Tests E2E passés' : 'Tests E2E échoués',
               context: 'E2E Tests'
             });
