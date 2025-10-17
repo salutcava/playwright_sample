@@ -1,0 +1,186 @@
+name: E2E Tests and PR Creation
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: 'URL du site à tester'
+        required: true
+        default: 'https://salutcava.github.io/playwright_sample_site/'
+      source_branch:
+        description: 'Branche source du déploiement'
+        required: true
+      source_sha:
+        description: 'SHA du commit source'
+        required: true
+      source_repo:
+        description: 'Repository source'
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+    outputs:
+      test-result: ${{ steps.tests.outcome }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+      
+      - name: Run Playwright tests
+        id: tests
+        continue-on-error: true
+        env:
+          SITE_URL: ${{ inputs.site_url }}
+        run: npx playwright test
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+  create-pr:
+    needs: e2e-tests
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout site repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ inputs.source_branch }}
+          token: ${{ secrets.PAT_TOKEN }}
+      
+      - name: Create PR branch if not main
+        if: inputs.source_branch != 'main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Créer une branche pour la PR si elle n'existe pas déjà
+          PR_BRANCH="pr-${{ inputs.source_branch }}-${{ inputs.source_sha }}"
+          git checkout -b $PR_BRANCH 2>/dev/null || git checkout $PR_BRANCH
+          git push origin $PR_BRANCH --force
+      
+      - name: Create or Update Pull Request
+        if: inputs.source_branch != 'main'
+        uses: actions/github-script@v7
+        env:
+          TEST_RESULT: ${{ needs.e2e-tests.outputs.test-result }}
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const sourceBranch = '${{ inputs.source_branch }}';
+            const sourceRepo = '${{ inputs.source_repo }}';
+            const [owner, repo] = sourceRepo.split('/');
+            const testResult = process.env.TEST_RESULT;
+            const testStatus = testResult === 'success' ? '✅ PASSED' : '❌ FAILED';
+            const testEmoji = testResult === 'success' ? '✅' : '❌';
+            
+            const prBody = `
+            ## ${testEmoji} Tests E2E - ${testStatus}
+            
+            **Branch:** \`${sourceBranch}\`
+            **Commit:** \`${{ inputs.source_sha }}\`
+            **Site URL:** ${{ inputs.site_url }}
+            
+            ### Résultat des tests
+            - Status: **${testStatus}**
+            - [Voir le rapport complet](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ${testResult === 'success' ? 
+              '🎉 Tous les tests sont passés ! Cette PR peut être mergée.' : 
+              '⚠️ Des tests ont échoué. Vérifiez les résultats avant de merger.'}
+            
+            ---
+            *Généré automatiquement par le workflow E2E*
+            `;
+            
+            // Chercher une PR existante
+            const { data: prs } = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              head: `${owner}:${sourceBranch}`
+            });
+            
+            if (prs.length > 0) {
+              // Mettre à jour la PR existante
+              const pr = prs[0];
+              await github.rest.pulls.update({
+                owner,
+                repo,
+                pull_number: pr.number,
+                body: prBody
+              });
+              
+              console.log(`PR #${pr.number} mise à jour`);
+              
+              // Ajouter un label selon le résultat
+              const labels = testResult === 'success' ? ['e2e-passed'] : ['e2e-failed'];
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pr.number,
+                labels
+              });
+            } else {
+              // Créer une nouvelle PR
+              const { data: pr } = await github.rest.pulls.create({
+                owner,
+                repo,
+                title: `${testEmoji} Deploy from ${sourceBranch}`,
+                head: sourceBranch,
+                base: 'main',
+                body: prBody
+              });
+              
+              console.log(`PR #${pr.number} créée`);
+              
+              // Ajouter un label selon le résultat
+              const labels = testResult === 'success' ? ['e2e-passed'] : ['e2e-failed'];
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pr.number,
+                labels
+              });
+            }
+      
+      - name: Add status check
+        if: always() && inputs.source_branch != 'main'
+        uses: actions/github-script@v7
+        env:
+          TEST_RESULT: ${{ needs.e2e-tests.outputs.test-result }}
+        with:
+          github-token: ${{ secrets.PAT_TOKEN }}
+          script: |
+            const testResult = process.env.TEST_RESULT;
+            const state = testResult === 'success' ? 'success' : 'failure';
+            
+            await github.rest.repos.createCommitStatus({
+              owner: 'salutcava',
+              repo: 'playwright_sample_site',
+              sha: '${{ inputs.source_sha }}',
+              state: state,
+              target_url: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}',
+              description: testResult === 'success' ? 'Tests E2E passés' : 'Tests E2E échoués',
+              context: 'E2E Tests'
+            });
