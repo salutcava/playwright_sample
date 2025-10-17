@@ -85,7 +85,7 @@ jobs:
         env:
           TEST_RESULT: ${{ needs.e2e-tests.outputs.test-result }}
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}
+          github-token: ${{ secrets.PWS_PAT }}
           script: |
             const sourceBranch = '${{ inputs.source_branch }}';
             const sourceRepo = '${{ inputs.source_repo }}';
