@@ -170,7 +170,7 @@ jobs:
         env:
           TEST_RESULT: ${{ needs.e2e-tests.outputs.test-result }}
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}
+          github-token: ${{ secrets.PWS_PAT }}
           script: |
             const testResult = process.env.TEST_RESULT;
             const state = testResult === 'success' ? 'success' : 'failure';
