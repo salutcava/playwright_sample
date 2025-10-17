@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: "pages-${{ github.ref }}"
@@ -26,6 +28,8 @@ jobs:
     env:
       HOME: /root
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    outputs:
+      tests_outcome: ${{ steps.tests.outcome }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,28 +45,37 @@ jobs:
           restore-keys: |
             npm-${{ runner.os }}-
 
-      - name: Run Playwright (HTML)
+      - name: Install & Run Playwright (HTML)
+        id: tests
+        continue-on-error: true
         run: |
           [ -f .env.ci ] && cp .env.ci .env
           npm ci --no-audit --no-fund --prefer-offline
+          # Génère toujours le rapport HTML même en cas d'échec
           npx playwright test -c ci.config.ts --reporter=html
 
-      - name: Upload Pages artifact
+      - name: Upload Pages artifact (always)
+        if: ${{ always() }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: playwright-report
           name: github-pages
 
+      # Echoue le job si les tests ont échoué, mais seulement après l’upload
+      - name: Fail job if tests failed
+        if: ${{ steps.tests.outcome == 'failure' }}
+        run: |
+          echo "Playwright tests failed, but report has been uploaded."
+          exit 1
+
   reporting:
+    # Démarre même si e2e a échoué
+    if: ${{ always() }}
     needs: e2e
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
-    permissions:
-      pages: write
-      id-token: write
-      contents: read
     steps:
       - id: deploy
         uses: actions/deploy-pages@v4
